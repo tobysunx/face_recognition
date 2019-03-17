@@ -9,9 +9,9 @@ import random
 from skimage import io as iio
 import io
 import zlib
-import dlib  # 人脸识别的库dlib
+# import dlib  # 人脸识别的库dlib
 import numpy as np  # 数p据处理的库numpy
-import cv2  # 图像处理的库OpenCv
+# import cv2  # 图像处理的库OpenCv
 import _thread
 from time import sleep
 from threading import Thread
@@ -27,9 +27,8 @@ ID_CLOSE_LOGCAT = 284
 
 ID_WORKER_UNAVIABLE = -1
 
-PICNUM = 15
+PICNUM = 5
 
-PATH_FACE = "data/face_img_database/"
 # face recognition model, the object maps human faces into 128D vectors
 facerec = dlib.face_recognition_model_v1("model/dlib_face_recognition_resnet_model_v1.dat")
 # Dlib 预测器
@@ -71,12 +70,18 @@ class WAS(wx.Frame):
         self.initMenu()
         self.initInfoText()
         self.initGallery()
+        self.initProcessBar()
+        self.clearDatabase()
         self.initDatabase()
-        self.initData()
+        self.initData(0)
+       
 
-    def initData(self):
-        self.name = ""
-        self.id =ID_WORKER_UNAVIABLE
+    def initData(self,type):
+        if type == 0: #full init
+            self.name = ""
+            self.id =ID_WORKER_UNAVIABLE
+        if type == 1: # regist duplicate init save the name and id
+            pass
         self.face_feature = ""
         self.pic_num = 0
         self.flag_registed = False
@@ -152,13 +157,36 @@ class WAS(wx.Frame):
         self.SetMenuBar(menuBar)
 
         self.Bind(wx.EVT_MENU,self.OnNewRegisterClicked,id=ID_NEW_REGISTER)
-        self.Bind(wx.EVT_MENU,self.OnFinishRegisterClicked,id=ID_FINISH_REGISTER)
+        self.Bind(wx.EVT_MENU,self.OnEndPunchCardClicked,id=ID_FINISH_REGISTER)
         self.Bind(wx.EVT_MENU,self.OnStartPunchCardClicked,id=ID_START_PUNCHCARD)
         self.Bind(wx.EVT_MENU,self.OnEndPunchCardClicked,id=ID_END_PUNCARD)
         self.Bind(wx.EVT_MENU,self.OnOpenLogcatClicked,id=ID_OPEN_LOGCAT)
         self.Bind(wx.EVT_MENU,self.OnCloseLogcatClicked,id=ID_CLOSE_LOGCAT)
 
+    def initProcessBar(self):
+        self.processCount = 0
+        self.gauge = wx.Gauge(self, -1, 100, (410, 400),(480, 25))
+        self.gauge.SetBezelFace(3)
+        self.gauge.SetShadowWidth(3)
+        self.gauge.Hide()
+        # self.Bind(wx.EVT_IDLE, self.OnIdle)
+
+    def OnIdle(self, event):
+        sleep(0.1)
+        self.processCount = self.processCount + 1
+        if self.processCount >= 80:
+            self.processCount = 0
+        self.gauge.SetValue(self.processCount)
+        
+    
+
+
     def OnOpenLogcatClicked(self,event):
+        self.hideDetectLabel('temp')
+        try:
+            self.grid.Hide()
+        except:
+            pass
         self.loadDataBase(2)
         self.grid = wx.grid.Grid(self,pos=(320,0),size=(600,500))
         self.grid.CreateGrid(100, 4)
@@ -193,18 +221,19 @@ class WAS(wx.Frame):
         
 
     def appendMsg(self,id,name,message):
-        self.infoText.AppendText("工号:"+str(id)+" 姓名:"+name+"-"+message+"\r\n")
+        self.infoText.AppendText("工号:"+str(id)+"-姓名:"+name+"-"+message+"\r\n")
         if message == "成功录入":
             wx.MessageBox(message="成功录入", caption="成功")
         if message == "人脸已经录入":
             wx.MessageBox(message="人脸已经录入", caption="警告")
     def register_cap(self,event):
         # 创建 cv2 摄像头对象
+        print("人脸注册启动")
         firstdetect = True
         self.cap = cv2.VideoCapture(0)
    
         detectflag = True
-        while self.cap.isOpened(    ):
+        while self.cap.isOpened():
             if self.turnoffcap:
                
                 _thread.exit()
@@ -259,8 +288,13 @@ class WAS(wx.Frame):
                         self.pic_num += 1
 
                         self.imgsavelist.append(imgtodetect)
+
+                        wx.CallAfter(self.updateDetectProcess,(self.pic_num / PICNUM) * 100,0)
                         
-                        wx.CallAfter(self.showDetectProcess, self.pic_num)
+
+                        
+
+                        
 
                         # 获取当前捕获到的图像的所有人脸的特征，存储到 features_cap_arr
                         if firstdetect==True:
@@ -276,10 +310,13 @@ class WAS(wx.Frame):
                                 if compare == "same":  # 找到了相似脸
                                     # self.infoText.AppendText(self.getDateAndTime()+"工号:"+str(self.knew_id[i])
                                     #                         +" 姓名:"+self.knew_name[i]+" 的人脸数据已存在\r\n")
-                                    wx.CallAfter(self.appendMsg,
-                                                  self.id, self.name, "人脸已经录入")
+                                    # wx.CallAfter(self.appendMsg,
+                                    #               self.id, self.name, "人脸已经录入")
                                     self.flag_registed = True
+                                    wx.CallAfter(self.duplicateRegist,self.knew_id[i])
+                                    # self.duplicateRegist = wx.MessageDialog(None, u"消息对话框测试", u"标题信息", wx.YES_NO | wx.ICON_QUESTION);
                                     self.OnFinishRegisterClicked('temp')
+
                                     _thread.exit()
 
                         
@@ -300,30 +337,55 @@ class WAS(wx.Frame):
 
 
     def OnNewRegisterClicked(self,event):
-        self.initData()
+        try:
+            self.OnEndPunchCardClicked("temp")
+        except:
+            pass
+        self.initData(0)
         self.loadDataBase(1)
-        while self.id == ID_WORKER_UNAVIABLE:
-            self.id = wx.GetNumberFromUser(message="请输入您的工号(-1不可用)",
-                                           prompt="工号", caption="温馨提示",
-                                           value=ID_WORKER_UNAVIABLE,
-                                           parent=self.bmp,max=100000000,min=ID_WORKER_UNAVIABLE    )
-            for knew_id in self.knew_id:
-                if knew_id == self.id:
-                    self.id = ID_WORKER_UNAVIABLE
-                    wx.MessageBox(message="工号已存在，请重新输入", caption="警告")
+        self.initGallery()
+        self.id = 0
+        self.name == ''
+        while self.id == 0:
+            self.id = wx.GetNumberFromUser(message="请输入工号",
+                                            prompt="工号", caption="温馨提示",
+                                            value=0,
+                                            parent=self.bmp,max=100000000)
+        
+            if self.id > 0:
+                if len(self.knew_id) > 0:
+                    for knew_id in self.knew_id:
+                        if knew_id == self.id:
+                            self.id = 0
+                            wx.MessageBox(message="工号已存在，请重新输入", caption="警告")
+                        else:
+                            while self.name == '':
+                                self.name = wx.GetTextFromUser(message="请输入姓名",
+                                                            caption="温馨提示",
+                                                        default_value="", parent=self.bmp)
+                            _thread.start_new_thread(self.register_cap, (event,))
+                            wx.CallAfter(self.showDetectProcess)
+                else:
+                    while self.name == '':
+                        self.name = wx.GetTextFromUser(message="请输入姓名",
+                                                            caption="温馨提示",
+                                                        default_value="", parent=self.bmp)
+                        _thread.start_new_thread(self.register_cap, (event,))
+                        wx.CallAfter(self.showDetectProcess)
 
-        while self.name == '':
-            self.name = wx.GetTextFromUser(message="请输入您的的姓名",
-                                           caption="温馨提示",
-                                      default_value="", parent=self.bmp)
 
-        _thread.start_new_thread(self.register_cap,(event,))
-        pass
+        else:
+            if self.id == 0:
+                wx.MessageBox(message="工号输入非法，请重新输入", caption="警告")
+
+
 
     def OnFinishRegister(self):
         self.turnoffcap = True
         # cv2.destroyAllWindows()
         self.cap.release()
+        wx.CallAfter(self.updateDetectProcess,0,1);
+
 
         if self.pic_num>0:
             feature_list = []
@@ -337,6 +399,7 @@ class WAS(wx.Frame):
                     feature_list.append(face_descriptor)
                 else:
                     face_descriptor = 0
+                wx.CallAfter(self.updateDetectProcess, ((i+1) / PICNUM) * 100, 1)
             if len(feature_list) > 0:
                 for j in range(128):
                     #防止越界
@@ -351,7 +414,7 @@ class WAS(wx.Frame):
 
         else:
             pass
-        self.initData()
+        self.initData(0)
 
     def showPunchcard(self,temp):
         try:
@@ -363,7 +426,17 @@ class WAS(wx.Frame):
             self.infoText.AppendText(str(self.logcat_id[i])+"-"+self.logcat_name[i]+"今日已签到\r\n")
             
 
-        
+    def duplicateRegist(self,work_id):
+        dlg = wx.MessageDialog(None, u"当前人脸已经录入于工号"+str(work_id)+"，是否重新录入", u"警告",
+                            wx.YES_NO | wx.ICON_QUESTION)
+        if dlg.ShowModal() == wx.ID_YES:
+            print(work_id)
+            self.deleteARow(work_id)
+            self.loadDataBase(1)
+            # self.OnNewRegisterClicked("temp");
+            self.initData(1)
+            _thread.start_new_thread(self.register_cap, ("temp",))
+            wx.CallAfter(self.showDetectProcess)
 
     def OnFinishRegisterClicked(self,event):
         wx.CallAfter(self.hideDetectLabel,'hide detectlabel')
@@ -374,33 +447,52 @@ class WAS(wx.Frame):
         # self.OnFinishRegister()
         # pass
 
-    def showDetectProcess(self,num):
+    def showDetectProcess(self):
         try:
-            self.detectLabel.Hide()
+            self.gauge.Show()
         except:
             pass
-        self.detectLabel = wx.StaticText(parent=self, style=wx.ALIGN_CENTER_VERTICAL, pos=(
-            400, 350), size=(90, 60), label="正在截取头像："+str(num)+"/5")
-        if self.pic_num == PICNUM:
-            sleep(0.1)
+
+    def updateDetectProcess(self, p, type):
+        if type == 0:
+            self.gauge.SetValue(p)    
             try:
                 self.detectLabel.Hide()
             except:
                 pass
-            
             self.detectLabel = wx.StaticText(parent=self, style=wx.ALIGN_CENTER_VERTICAL, pos=(
-                400, 350), size=(90, 60), label="正在读取头像信息")
+                410, 350), size=(200, 60), label="正在截取头像："+str(self.pic_num)+"/"+str(PICNUM))
+            if self.pic_num == PICNUM:
+                sleep(0.1)
+                try:
+                    self.detectLabel.Hide()
+                except:
+                    pass
+                
+                self.detectLabel = wx.StaticText(parent=self, style=wx.ALIGN_CENTER_VERTICAL, pos=(
+                    410, 350), size=(200, 60), label="正在读取头像信息")
+        else:
+            self.gauge.SetValue(p)
+            if p == 100:
+                try:
+                    self.detectLabel.Hide()
+                    self.detectLabel = wx.StaticText(parent=self, style=wx.ALIGN_CENTER_VERTICAL, pos=(410, 350), size=(200, 60), label="录入成功")
+                    pass
+                except:
+                    pass
+
     
     def hideDetectLabel(self,temp):
         try:
             self.detectLabel.Hide()
+            self.gauge.Hide()
         except:
             pass
-    
-            
-        
+      
 
     def punchcard_cap(self,event):
+        self.hideDetectLabel('temp')
+        print("人脸签到启动")
         wx.CallAfter(self.showPunchcard,'show the people had puncharded')
         # 创建 cv2 摄像头对象
         firstdetect = True
@@ -410,13 +502,12 @@ class WAS(wx.Frame):
             if  self.turnoffcap:
                 _thread.exit()
 
-            # try:
+        
             flag, im_rd = self.cap.read()
-            imgtoshow = cv2.resize(
-                im_rd, (480, 320), interpolation=cv2.INTER_CUBIC)
-
-            # except:
-            # print("didididid")
+            try:
+                imgtoshow = cv2.resize(im_rd, (480, 320), interpolation=cv2.INTER_CUBIC)
+            except:
+                pass
           
             if self.second % 4 == 2 or self.second % 4 == 0:
                 if detectflag == True:
@@ -507,7 +598,7 @@ class WAS(wx.Frame):
         #     wx.MessageBox(message='''您错过了今天的签到时间，请明天再来\n
         #     每天的签到时间是:6:00~7:59''', caption="警告")
         #     return
-        self.initData()
+        self.initData(0)
         self.loadDataBase(2)
         _thread.start_new_thread(self.punchcard_cap,(event,))
         pass
@@ -515,13 +606,16 @@ class WAS(wx.Frame):
     def OnEndPunchCardClicked(self,event):
         self.turnoffcap = True
         # cv2.destroyAllWindows()
-        self.cap.release()
+        try:
+            self.cap.release()
+        except:
+            pass
         
         pass
 
     def initInfoText(self):
         #少了这两句infoText背景颜色设置失败，莫名奇怪
-        resultText = wx.StaticText(parent=self, pos = (10,20),size=(90, 60))
+        resultText = wx.StaticText(parent=self, pos = (30,30),size=(90, 60))
         
 
         self.info = "\r\n"+self.getDateAndTime()+"程序初始化成功\r\n"
@@ -534,8 +628,6 @@ class WAS(wx.Frame):
 
         font = wx.Font()
         font.SetPointSize(12)
-        font.SetWeight(wx.BOLD)
-        font.SetUnderlined(True)
 
         self.infoText.SetFont(font)
         
@@ -607,6 +699,17 @@ class WAS(wx.Frame):
         conn.commit()
         conn.close()
         pass
+
+    def deleteARow(self,work_id):
+        conn = sqlite3.connect("inspurer.db")  # 建立数据库连接
+        cur = conn.cursor()  # 得到游标对象
+        cur.execute("delete from worker_info where id = ?", (work_id,))
+        cur.close()
+        conn.commit()
+        conn.close()
+        print("人脸已删除")
+
+
     def isToday(self,dt):
         detester = dt
         date = datetime.datetime.strptime(detester, '[%Y-%m-%d %H:%M:%S]')
@@ -656,7 +759,7 @@ class WAS(wx.Frame):
                     self.logcat_datetime.append(row[2])
                
                     self.logcat_late.append(row[3])
-    
+
 app = wx.App()
 frame = WAS()
 frame.Show()
