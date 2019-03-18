@@ -9,9 +9,9 @@ import random
 from skimage import io as iio
 import io
 import zlib
-# import dlib  # 人脸识别的库dlib
+import dlib  # 人脸识别的库dlib
 import numpy as np  # 数p据处理的库numpy
-# import cv2  # 图像处理的库OpenCv
+import cv2  # 图像处理的库OpenCv
 import _thread
 from time import sleep
 from threading import Thread
@@ -29,11 +29,7 @@ ID_WORKER_UNAVIABLE = -1
 
 PICNUM = 5
 
-# face recognition model, the object maps human faces into 128D vectors
-facerec = dlib.face_recognition_model_v1("model/dlib_face_recognition_resnet_model_v1.dat")
-# Dlib 预测器
-detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor('model/shape_predictor_68_face_landmarks.dat')
+
 def return_euclidean_distance(feature_1, feature_2):
     feature_1 = np.array(feature_1)
     feature_2 = np.array(feature_2)
@@ -66,14 +62,16 @@ def timer(self):
 class WAS(wx.Frame):
     def __init__(self):
         wx.Frame.__init__(self,parent=None,title="员工考勤系统",size=(920,560))
-
-        self.initMenu()
+        self.initData(0)
+        self.initFaceDetectorProcess()
+        # self.initMenu()
         self.initInfoText()
-        self.initGallery()
+        # self.initGallery()
         self.initProcessBar()
         self.clearDatabase()
         self.initDatabase()
-        self.initData(0)
+        
+        
        
 
     def initData(self,type):
@@ -90,7 +88,35 @@ class WAS(wx.Frame):
         self.imgsavelist = []
         self.second = 0
         self.turnoffcap = False
+        self.finishinitfd = 0
         timer(self)
+
+    def callinitfd(self):
+        _thread.start_new_thread(self.initFaceDetector, ('temp',))
+    
+    def fdpSetValue(self,num):
+        self.fdp.SetValue(num)
+
+    def _initInfoText(self):
+        self.infoText = wx.TextCtrl(parent=self, size=(320, 500),
+                                    style=(wx.TE_MULTILINE | wx.HSCROLL | wx.TE_READONLY))
+
+    def initFaceDetector(self,event):
+        # face recognition model, the object maps human faces into 128D vectors
+        self.facerec = dlib.face_recognition_model_v1("model/dlib_face_recognition_resnet_model_v1.dat")
+        wx.CallAfter(self.fdpSetValue,30)
+        # Dlib 预测器
+        self.detector = dlib.get_frontal_face_detector()
+        wx.CallAfter(self.fdpSetValue, 60)
+        self.predictor = dlib.shape_predictor('model/shape_predictor_68_face_landmarks.dat')
+        wx.CallAfter(self.fdpSetValue, 100)
+        self.fdp.Hide()
+        self.detectLabel.Hide()
+        wx.CallAfter(self.initMenu)
+        # self.initGallery()
+        wx.CallAfter(self._initInfoText)
+
+        
 
 
     def clearDatabase(self):
@@ -165,18 +191,26 @@ class WAS(wx.Frame):
 
     def initProcessBar(self):
         self.processCount = 0
-        self.gauge = wx.Gauge(self, -1, 100, (410, 400),(480, 25))
-        self.gauge.SetBezelFace(3)
-        self.gauge.SetShadowWidth(3)
-        self.gauge.Hide()
+        self.getfaceProcess = wx.Gauge(self, -1, 100, (410, 400),(480, 25))
+        self.getfaceProcess.SetBezelFace(3)
+        self.getfaceProcess.SetShadowWidth(3)
+        self.getfaceProcess.Hide()
         # self.Bind(wx.EVT_IDLE, self.OnIdle)
+    def initFaceDetectorProcess(self):
+        self.detectLabel = wx.StaticText(parent=self, style=wx.ALIGN_CENTER_VERTICAL, pos=(350, 350), size=(200, 60), label="正在加载dlib,请稍等")
+        self.fdp = wx.Gauge(self, -1, 100, (200, 400), (480, 25))
+        self.fdp.SetBezelFace(3)
+        self.fdp.SetShadowWidth(3)
+        self.fdpcount = 0
+        wx.CallAfter(self.callinitfd)
+
 
     def OnIdle(self, event):
         sleep(0.1)
         self.processCount = self.processCount + 1
         if self.processCount >= 80:
             self.processCount = 0
-        self.gauge.SetValue(self.processCount)
+        self.getfaceProcess.SetValue(self.processCount)
         
     
 
@@ -260,7 +294,7 @@ class WAS(wx.Frame):
                   
                    
                     # 人脸数 dets
-                    dets = detector(imgtodetect, 1)
+                    dets = self.detector(imgtodetect, 1)
 
                     # 检测到人脸
                     if len(dets) != 0:
@@ -299,8 +333,8 @@ class WAS(wx.Frame):
                         # 获取当前捕获到的图像的所有人脸的特征，存储到 features_cap_arr
                         if firstdetect==True:
                             firstdetect = False
-                            shape = predictor(imgtodetect, biggest_face)
-                            features_cap = facerec.compute_face_descriptor(
+                            shape = self.predictor(imgtodetect, biggest_face)
+                            features_cap = self.facerec.compute_face_descriptor(
                                 imgtodetect, shape)
 
                             # 对于某张人脸，遍历所有存储的人脸特征
@@ -341,6 +375,13 @@ class WAS(wx.Frame):
             self.OnEndPunchCardClicked("temp")
         except:
             pass
+        
+        try:
+            self.getfaceProcess.SetValue(0)
+            self.getfaceProcess.Hide()
+        except:
+            pass
+        
         self.initData(0)
         self.loadDataBase(1)
         self.initGallery()
@@ -392,10 +433,10 @@ class WAS(wx.Frame):
             feature_average = []
             for i in range(len(self.imgsavelist)):
                 img_gray = cv2.cvtColor(self.imgsavelist[i], cv2.COLOR_BGR2RGB)
-                dets = detector(img_gray, 1)
+                dets = self.detector(img_gray, 1)
                 if len(dets) != 0:
-                    shape = predictor(img_gray, dets[0])
-                    face_descriptor = facerec.compute_face_descriptor(img_gray, shape)
+                    shape = self.predictor(img_gray, dets[0])
+                    face_descriptor = self.facerec.compute_face_descriptor(img_gray, shape)
                     feature_list.append(face_descriptor)
                 else:
                     face_descriptor = 0
@@ -421,9 +462,9 @@ class WAS(wx.Frame):
             self.infoText.Hide()
         except:
             pass
-        self.initInfoText()
+        self._initInfoText()
         for i in range(len(self.logcat_id)):
-            self.infoText.AppendText(str(self.logcat_id[i])+"-"+self.logcat_name[i]+"今日已签到\r\n")
+            self.infoText.AppendText("工号:"+str(self.logcat_id[i])+"-姓名-"+self.logcat_name[i]+"今日已签到\r\n")
             
 
     def duplicateRegist(self,work_id):
@@ -449,13 +490,13 @@ class WAS(wx.Frame):
 
     def showDetectProcess(self):
         try:
-            self.gauge.Show()
+            self.getfaceProcess.Show()
         except:
             pass
 
     def updateDetectProcess(self, p, type):
         if type == 0:
-            self.gauge.SetValue(p)    
+            self.getfaceProcess.SetValue(p)    
             try:
                 self.detectLabel.Hide()
             except:
@@ -472,7 +513,7 @@ class WAS(wx.Frame):
                 self.detectLabel = wx.StaticText(parent=self, style=wx.ALIGN_CENTER_VERTICAL, pos=(
                     410, 350), size=(200, 60), label="正在读取头像信息")
         else:
-            self.gauge.SetValue(p)
+            self.getfaceProcess.SetValue(p)
             if p == 100:
                 try:
                     self.detectLabel.Hide()
@@ -485,7 +526,7 @@ class WAS(wx.Frame):
     def hideDetectLabel(self,temp):
         try:
             self.detectLabel.Hide()
-            self.gauge.Hide()
+            self.getfaceProcess.Hide()
         except:
             pass
       
@@ -519,7 +560,7 @@ class WAS(wx.Frame):
                         im_rd, (120, 80), interpolation=cv2.INTER_CUBIC)
 
                     # 人脸数 dets
-                    dets = detector(imgtodetect, 1)
+                    dets = self.detector(imgtodetect, 1)
 
                     # 检测到人脸
                     if len(dets) != 0:
@@ -551,8 +592,8 @@ class WAS(wx.Frame):
                         # 获取当前捕获到的图像的所有人脸的特征，存储到 features_cap_arr
                         if True:
                             firstdetect = False
-                            shape = predictor(imgtodetect, biggest_face)
-                            features_cap = facerec.compute_face_descriptor(
+                            shape = self.predictor(imgtodetect, biggest_face)
+                            features_cap = self.facerec.compute_face_descriptor(
                                 imgtodetect, shape)
 
                             # 对于某张人脸，遍历所有存储的人脸特征
@@ -620,7 +661,7 @@ class WAS(wx.Frame):
 
         self.info = "\r\n"+self.getDateAndTime()+"程序初始化成功\r\n"
         #第二个参数水平混动条
-        self.infoText = wx.TextCtrl(parent=self,size=(320,500),
+        self.infoText = wx.TextCtrl(parent=self,size=(0,0),
                    style=(wx.TE_MULTILINE|wx.HSCROLL|wx.TE_READONLY))
         #前景色，也就是字体颜色
         self.infoText.SetForegroundColour("black")
@@ -637,6 +678,7 @@ class WAS(wx.Frame):
     def initGallery(self):
         self.pic_index = wx.Image("drawable/index.png", wx.BITMAP_TYPE_ANY).Scale(600, 500)
         self.bmp = wx.StaticBitmap(parent=self, pos=(400,0), bitmap=wx.Bitmap(self.pic_index))
+        
         pass
 
     # def getDateAndTime(self):
