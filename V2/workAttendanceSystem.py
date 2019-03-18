@@ -68,7 +68,7 @@ class WAS(wx.Frame):
         self.initInfoText()
         # self.initGallery()
         self.initProcessBar()
-        self.clearDatabase()
+        # self.clearDatabase()
         self.initDatabase()
         
         
@@ -483,7 +483,7 @@ class WAS(wx.Frame):
         wx.CallAfter(self.hideDetectLabel,'hide detectlabel')
         self.turnoffcap = True
         # cv2.destroyAllWindows()
-        self.cap.release()
+        # self.cap.release()
         # self.OnEndPunchCardClicked('temp')
         # self.OnFinishRegister()
         # pass
@@ -641,6 +641,11 @@ class WAS(wx.Frame):
         #     return
         self.initData(0)
         self.loadDataBase(2)
+        try:
+            self.getfaceProcess.Hide()
+        except:
+            pass
+        self.initGallery()
         _thread.start_new_thread(self.punchcard_cap,(event,))
         pass
 
@@ -648,7 +653,9 @@ class WAS(wx.Frame):
         self.turnoffcap = True
         # cv2.destroyAllWindows()
         try:
-            self.cap.release()
+            # self.cap.release()
+            self.getfaceProcess.Hide()
+            
         except:
             pass
         
